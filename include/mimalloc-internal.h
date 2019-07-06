@@ -133,6 +133,57 @@ static inline bool mi_mul_overflow(size_t size, size_t count, size_t* total) {
           && size > 0 && (SIZE_MAX / size) < count);
 }
 
+// Fast division
+// given a divisor d, an n = i * d (all integers), the value i will be returned.
+// We do some pre-computation to do this more quickly than a CPU division
+// instruction.
+// We bound n < 2^32, and don't support dividing by one.
+
+typedef uint32_t _mi_div_t;
+static inline _mi_div_t _mi_div_init(size_t d) {
+  mi_assert_internal(d != 0);
+  /*
+   * This would make the value of magic too high to fit into a uint32_t
+   * (we would want magic = 2^32 exactly). This would mess with code gen
+   * on 32-bit machines.
+   */
+  mi_assert_internal(d != 1);
+
+  uint64_t two_to_k = ((uint64_t)1 << 32);
+  uint32_t magic = (uint32_t)(two_to_k / d);
+
+  // We expect magic = ceil(2^k / d), but C gives us floor. We have to
+  // increment it unless the result was exact (i.e. unless d is a power of two).
+  if (two_to_k % d != 0) magic++;
+  return magic;
+}
+
+/*
+ * Suppose we have n = q * d, all integers. We know n and d, and want q = n / d.
+ *
+ * For any k, we have (here, all division is exact; not C-style rounding):
+ * floor(ceil(2^k / d) * n / 2^k) = floor((2^k + r) / d * n / 2^k), where
+ * r = (-2^k) mod d.
+ *
+ * Expanding this out:
+ * ... = floor(2^k / d * n / 2^k + r / d * n / 2^k)
+ *     = floor(n / d + (r / d) * (n / 2^k)).
+ *
+ * The fractional part of n / d is 0 (because of the assumption that d divides n
+ * exactly), so we have:
+ * ... = n / d + floor((r / d) * (n / 2^k))
+ *
+ * So that our initial expression is equal to the quantity we seek, so long as
+ * (r / d) * (n / 2^k) < 1.
+ *
+ * r is a remainder mod d, so r < d and r / d < 1 always. We can make
+ * n / 2 ^ k < 1 by setting k = 32. This gets us a value of magic that works.
+ */
+static inline size_t _mi_div(size_t n, _mi_div_t dt) {
+    mi_assert_internal(n <= (uint32_t)-1);
+    return ((uint64_t)n * (uint64_t)dt) >> 32;
+}
+
 // Align a byte size to a size in _machine words_,
 // i.e. byte size == `wsize*sizeof(void*)`.
 static inline size_t _mi_wsize_from_size(size_t size) {

@@ -424,13 +424,15 @@ static bool mi_heap_area_visit_blocks(const mi_heap_area_ex_t* xarea, mi_block_v
   uintptr_t free_map[MI_MAX_BLOCKS / sizeof(uintptr_t)];
   memset(free_map, 0, sizeof(free_map));
 
+  _mi_div_t block_size_div = _mi_div_init(page->block_size);
+
   size_t free_count = 0;
   for (mi_block_t* block = page->free; block != NULL; block = mi_block_next(page,block)) {
     free_count++;
     mi_assert_internal((uint8_t*)block >= pstart && (uint8_t*)block < (pstart + psize));
     size_t offset = (uint8_t*)block - pstart;
     mi_assert_internal(offset % page->block_size == 0);
-    size_t blockidx = offset / page->block_size;  // Todo: avoid division?
+    size_t blockidx = _mi_div(offset, block_size_div); // equivalent to "offset / page->block_size"
     mi_assert_internal( blockidx < MI_MAX_BLOCKS);
     size_t bitidx = (blockidx / sizeof(uintptr_t));
     size_t bit = blockidx - (bitidx * sizeof(uintptr_t));
